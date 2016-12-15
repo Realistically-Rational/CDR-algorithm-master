@@ -1,0 +1,438 @@
+package final_proj;
+
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.Comparator;
+import java.util.PriorityQueue;
+import java.util.Scanner;
+
+
+class data_manip{
+	int row;			//210
+	int column;			//19
+	
+	public data_manip(int in_row,int in_column){
+		this.row = in_row;
+		this.column = in_column;
+	}
+	
+	
+	public double[][] array_from_file(int in) throws FileNotFoundException{
+			double[][] training_data = new double[row][column];
+			File file1 = new File("segmentation_test.txt");
+			File file2 = new File("segmentation.txt");
+			Scanner sc = null;
+			if(in == 0){
+				sc = new Scanner(file1).useDelimiter("[,\\s*]");
+			}
+			else if(in == 1){
+				sc = new Scanner(file2).useDelimiter("[,\\s*]");
+			}
+			    for(int i = 0; i < row; i++){
+			        for(int j = 0; j < column; j++){
+			        	if (sc.hasNextDouble()){	
+				        	training_data[i][j] = sc.nextDouble();
+			        	}
+			        	else if(sc.hasNext()){
+			        		sc.next();
+			        		j--;
+			        	}
+			        }
+			    }
+			sc.close();
+			return training_data;
+	}
+}
+
+class distance {
+	
+	private double[] x;
+	private double[] y;
+	private double mean_x=0;
+	private double mean_y=0;
+	
+	public distance(double[] in_x,double[] in_y){
+		x = in_x;
+		y = in_y;
+		for(int i = 0; i < x.length; i++){
+			mean_x += x[i];
+		}
+		mean_x /= (double)x.length;
+		
+		for(int i = 0; i < y.length; i++){
+			mean_y += y[i];
+		}
+		mean_y /= (double)y.length;
+	}
+	public distance() {
+		x = null;
+		y = null;
+	}
+	public double var(double[] var_vector,double var_mean){
+		double sum_var = 0;
+		double temp = 0;
+		for(int j = 0; j < var_vector.length; j++){
+			temp = (Math.pow((var_vector[j]-var_mean),2));
+			sum_var += temp;
+		}
+		return ((1.0/(double)var_vector.length)*sum_var);
+	}
+	public double cov(double[] cov_x, double[] cov_y){
+		double sum_cov = 0;
+		double temp = 0;
+		for(int k = 0; k < cov_x.length; k++){
+			temp = ((cov_x[k]-mean_x)*(cov_y[k]-mean_y));
+			sum_cov += temp;
+		}
+		return (((1.0/(double)cov_x.length))*sum_cov);
+	}
+	public double rho(double[] rho_x, double[] rho_y){
+		return(cov(rho_x,rho_y)/Math.sqrt(var(rho_x,mean_x)*var(rho_y,mean_y)));
+	}
+	public double Dist(){
+		double a = (Math.pow(var(x,mean_x)+var(y,mean_y),2));
+		double b = (4*var(x,mean_x)*var(y,mean_y)*(1-(Math.pow(rho(x,y), 2)))); 
+		return (Math.abs((double).5*(a-(Math.sqrt(a-b)))));
+	}
+}
+class Minimum {
+	private double dist;
+	private int row;
+	private int column;
+	
+	public Minimum(){
+		this.dist = 0;
+		this.row = 0;
+		this.column = 0;
+	}
+	public Minimum(double d,int r,int c){
+		this.dist = d;
+		this.row = r;
+		this.column = c;
+	}
+	public double getdist()
+	{return dist;}
+	public int getrow()
+	{return row;}
+	public int getcolumn()
+	{return column;}
+	public void setdist(double d)
+	{this.dist = d;}
+	public void setrow(int r)
+	{this.row = r;}
+	public void setcolumn(int c)
+	{this.column = c;}
+}
+public class Final_CDR_algorithm {
+		public static boolean central_switch = false;
+		
+		public static void main(String[] args) throws FileNotFoundException{
+			
+			Scanner input = new Scanner(System.in);
+			System.out.print("Choose file  0 is short file 1 is long file-------- :");
+			int file_choice = input.nextInt();
+			int instances=0;
+			int features=0;
+			
+			if (file_choice == 0){
+				instances = 210;
+				features = 19;
+			}
+			else if(file_choice == 1){
+				instances = 2100;
+				features = 19;
+			}
+			
+			Minimum Global_min = new Minimum();
+			Minimum Check_min = new Minimum();
+			PriorityQueue<Minimum> PQ_dist = new PriorityQueue<Minimum>();
+			double e = 0;
+			double threshold_constant = 0;				
+			double[][] training_data_array = new double[instances][features];
+			double[][] classifier_data_array = new double[instances][features];
+			double[][] distance_table = new double[features][features]; //square table of features
+			distance temp_dist = null;
+			
+			//get threshold input
+			System.out.print("Enter desired threshold-------- :");
+			threshold_constant = input.nextDouble();
+			
+			long startTime = System.nanoTime();
+			
+			data_manip d = new data_manip(instances,features);
+			training_data_array = d.array_from_file(file_choice); //pre-inverted array for feature reduction
+			classifier_data_array = training_data_array;
+			training_data_array = transpose(training_data_array);
+			/*System.out.print("training_data_array --------");
+			System.out.println();
+			print_array(training_data_array,instances,features);
+			System.out.println();*/
+			
+			for(int i = 0; i < training_data_array.length; i++){ 
+				double comparison = training_data_array[i][0];			//removing vector copies
+				boolean check = true;
+				int j = 1;
+				while(check && j < 210){
+					if (comparison != training_data_array[i][j]){
+						check = false;
+					}
+					j++;
+				}
+				if(check){
+					for(int k = 0; k < training_data_array[0].length; k++)
+					training_data_array[i][k] = 0;
+				}
+			}
+			
+			//create the arrays of each feature type
+			//Calculate distance between all of the arrays (feature arrays)
+			for(int i = 0; i < features-1; i++){
+	    		for(int j = i+1; j < features; j++){
+	    			temp_dist = new distance(training_data_array[i],training_data_array[j]);
+	    			distance_table[i][j] = temp_dist.Dist(); //populating table containing distance values between feature vectors
+	    		}
+			}
+			
+			
+			//System.out.println("Distance of feature array --------");
+			//print_array(distance_table,features,features);
+			
+			
+			//find minimum value in feature array to find global minimum distance
+			Global_min = min(distance_table); 
+			
+			e = Global_min.getdist() * threshold_constant;
+			PQ_dist = PQ_dist_table(distance_table,e,features); //fill priority queue with values from distance table including the coordinates
+			
+			while(!PQ_dist.isEmpty()){
+				Check_min = PQ_dist.poll();
+				delete(Check_min,distance_table,training_data_array); // function description below
+				Global_min = min(distance_table); // as the elimination of features will alter it recalculate global min
+				}
+
+			
+			System.out.println("features retained: ");	//output remaining features
+			for(int i = 0; i < features; i++){
+				if (training_data_array[i][0] != 0.0){
+					System.out.println("f" + i + " ");
+				}
+			}			
+			long endTime = System.nanoTime();
+			long duration = (endTime - startTime);
+			System.out.println("time to complete: " + duration);
+			
+
+			training_data_array = transpose(training_data_array);
+			Classifier(classifier_data_array,features,file_choice); //test with original set
+			Classifier(training_data_array,features,file_choice);   //test with reduced set
+			input.close();
+	}
+		public static double[][] transpose(double[][] array){
+			double[][] inverted_array = new double[array[0].length][array.length];;
+			for(int i = 0; i < array.length; i++){
+	    		for(int j = 0; j < array[0].length; j++){
+	    			inverted_array[j][i] = array[i][j];
+	    		}
+			}
+			return inverted_array;
+		}
+
+		public static void print_array(double[][] print_array,int row, int column){
+			for(int i = 0; i < column; i++){
+				for(int j = 0; j < row; j++){
+					System.out.print(print_array[i][j] + " ");
+				}
+				System.out.println ();	
+			}
+		}
+		public static void Classifier(double[][] test_set, int size, int choice) throws FileNotFoundException{
+			//String answer = null;
+			double[] input_array = new double[size];
+		    distance temp_dist = null;
+		    //boolean empty = false;
+		    double temp_min;
+		    int location = 0;
+			double[][] training_test_array = new double[92][19];
+			File file1 = new File("segmentation_test_training_test.txt");
+			File file2 = new File("segmentation_test.txt");
+			Scanner sc = null;
+			sc = new Scanner(file1).useDelimiter("[,\\s*]");
+			for(int i = 0; i < 92; i++){
+				for(int j = 0; j < 19; j++){
+			        if (sc.hasNextDouble()){	
+			        	training_test_array[i][j] = sc.nextDouble();
+			        }
+			        else if(sc.hasNext()){
+			        	sc.next();
+			        	j--;
+			        }
+			      
+				}
+			}
+			sc.close();
+			
+			double[] classification_array = new double[92];
+			temp_dist = new distance(test_set[0],training_test_array[0]);
+		    temp_min = temp_dist.Dist();
+		    for(int j = 0; j < 92; j++){
+			    for(int i = 0; i < 92; i++){
+			    	temp_dist = new distance(test_set[i],training_test_array[j]);
+			    	if(temp_dist.Dist() < temp_min){
+			    		temp_min = temp_dist.Dist();
+			    		classification_array[j] = i;
+			    	}
+			    	
+			    }
+		    }
+		    for(int i = 0; i < 92; i++){
+		    	System.out.println(classification_array[i] + " ");
+			}
+		   // System.out.println("vector classified as ------- : "+ answer);
+		   // System.out.println();
+		}
+
+		public static Minimum min(double[][] matrix) {
+		Minimum temp_min = new Minimum(1,1,1);
+		for (int col = 0; col < matrix.length; col++) {
+		    for (int row = 0; row < matrix[col].length; row++)
+		        if ((temp_min.getdist() > matrix[col][row]) && (matrix[col][row] != 0.0)){
+		        	temp_min.setdist(matrix[col][row]);
+		        	temp_min.setcolumn(col);			//save location
+		        	temp_min.setrow(row);			// of minimum
+		        }
+		}
+		return temp_min;
+		}
+		
+		//Comparator anonymous class implementation
+	    public static Comparator<Minimum> Dist_Comparator = new Comparator<Minimum>(){
+	         
+	        @Override
+	        public int compare(Minimum m1, Minimum m2) {
+	            return (int) (m1.getdist() - m2.getdist());
+	        }
+	    };
+		
+		public static PriorityQueue<Minimum> PQ_dist_table(double[][] array, double e, int f){
+			PriorityQueue<Minimum> PQ_dist = new PriorityQueue<>(f,Dist_Comparator);
+			for(int i = 0; i < array.length; i++){
+	    		for(int j = i+1; j < array.length; j++){
+	    			 if (array[i][j]<e){
+	    				PQ_dist.add(new Minimum(array[i][j],j,i));
+	    			 }
+	    		}
+			}
+			return PQ_dist;
+		}
+		public static void delete(Minimum min_temp, double[][] array, double[][] real_array){
+			
+			double D_avg_V1 = 0;
+			double D_avg_V2 = 0;
+			Minimum nearest_V1 = new Minimum();
+			Minimum nearest_V2 = new Minimum();
+			boolean empty_V1 = true;
+			int iterator_V1 = 0;
+			boolean empty_V2 = true;
+			int iterator_V2 = 0;
+			
+			
+			//initializing a value for nearest V1
+			while(empty_V1){
+				if(array[min_temp.getrow()][iterator_V1] > min_temp.getdist() && array[ min_temp.getrow()][iterator_V1] != 0){
+					nearest_V1.setdist(array[ min_temp.getrow()][iterator_V1]);
+					nearest_V1.setrow(min_temp.getrow());
+					nearest_V1.setcolumn(iterator_V1);
+					empty_V1 = false;
+				}
+				iterator_V1++;
+			}
+			//System.out.println("nearest_V1 initialised to: :" + nearest_V1.getdist());
+			
+			//initializing a value for nearest V2
+			while(empty_V2){
+				if(array[ min_temp.getcolumn()][iterator_V2] > min_temp.getdist() && array[ min_temp.getcolumn()][iterator_V2] != 0){
+					nearest_V2.setdist(array[ min_temp.getcolumn()][iterator_V2]);
+					nearest_V2.setrow(iterator_V2);
+					nearest_V2.setcolumn(min_temp.getcolumn());
+					empty_V2 = false;
+				}
+				iterator_V2++;	
+			}
+			//System.out.println("nearest_V2 initialised to: :" + nearest_V2.getdist());
+			
+			
+			//find nearest V1
+			//scroll row & column
+			for(int i = 0; i < array.length; i++){
+				if((array[min_temp.getrow()][i] < nearest_V1.getdist()) && (array[min_temp.getrow()][i] != 0) && (array[min_temp.getrow()][i] != min_temp.getdist())){
+					nearest_V1.setdist(array[min_temp.getrow()][i]);
+					nearest_V1.setrow(min_temp.getrow());
+					nearest_V1.setcolumn(i);
+				}
+				if((array[i][min_temp.getrow()] < nearest_V1.getdist()) && (array[i][min_temp.getrow()] != 0) && (array[i][min_temp.getrow()] != min_temp.getdist())){
+					nearest_V1.setdist(array[min_temp.getrow()][i]);
+					nearest_V1.setrow(i);
+					nearest_V1.setcolumn(min_temp.getcolumn());
+				}
+			}
+
+			//find nearest V2
+			//scroll row & column
+			for(int i = 0; i < array.length; i++){
+				if((array[min_temp.getcolumn()][i] < nearest_V2.getdist()) && (array[min_temp.getcolumn()][i] != 0) && (array[min_temp.getcolumn()][i] != min_temp.getdist())){
+					nearest_V2.setdist(array[min_temp.getcolumn()][i]);
+					nearest_V2.setrow(min_temp.getcolumn());
+					nearest_V2.setcolumn(i);
+				}
+				if((array[i][min_temp.getcolumn()] < nearest_V2.getdist()) && (array[i][min_temp.getcolumn()]!=0) && (array[i][min_temp.getcolumn()] != min_temp.getdist())){
+					nearest_V2.setdist(array[min_temp.getcolumn()][i]);
+					nearest_V2.setrow(min_temp.getcolumn());
+					nearest_V2.setcolumn(i);
+				}
+			}
+			
+			int temp_row;
+			int temp_col;
+			
+			if(nearest_V1.getrow() < nearest_V2.getrow()){
+				temp_row =  nearest_V1.getrow();
+				temp_col =  nearest_V2.getrow();
+			}
+			else{
+				temp_row =  nearest_V2.getrow();
+				temp_col =  nearest_V1.getrow();
+			}
+			//System.out.println("nearest V1 distance : " + nearest_V1.getdist() + "row : --" + nearest_V1.getrow() + "column : ---" + nearest_V1.getcolumn());
+			
+			D_avg_V1 = (nearest_V1.getdist() + (array[temp_row][temp_col]))/2;
+			
+			if(nearest_V1.getcolumn() < nearest_V2.getcolumn()){
+				temp_row =  nearest_V1.getcolumn();
+				temp_col =  nearest_V2.getcolumn();
+			}
+			else{
+				temp_row =  nearest_V2.getcolumn();
+				temp_col =  nearest_V1.getcolumn();
+			}
+			//System.out.println("nearest V2 distance : " + nearest_V2.getdist() + "row : --" + nearest_V2.getrow() + "column : ---" + nearest_V2.getcolumn());
+			
+			D_avg_V2 = (nearest_V2.getdist() + (array[temp_row][temp_col]))/2;
+			
+			if (D_avg_V1 > D_avg_V2){
+				if(central_switch){
+					for(int i = 0; i < real_array.length; i++){//delete both real array and distance table entry
+						real_array[ min_temp.getrow()][i] = 0;
+						array[ min_temp.getrow()][ min_temp.getcolumn()] = 0;
+					}
+						
+				}
+				else{
+					for(int i = 0; i < real_array.length; i++){//delete both real array and distance table
+						real_array[ min_temp.getcolumn()][i] = 0;
+						array[ min_temp.getrow()][ min_temp.getcolumn()] = 0;
+					}
+				}
+				central_switch = !central_switch;
+			}
+		}
+	}
